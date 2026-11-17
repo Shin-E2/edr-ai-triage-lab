@@ -1,0 +1,29 @@
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_rsa_*
+id_ed25519
+id_ed25519_*
+kubeconfig
+kubeconfig.*
+.kube/
+.aws/
+
+# Local environment and generated files
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+data/sim.jsonl
+data/sim_labels.jsonl
+data/eval/
+dist/
+.pytest_cache/
