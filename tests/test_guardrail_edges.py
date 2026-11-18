@@ -60,3 +60,28 @@ def test_every_verdict_must_cite_evidence():
 def test_check_rejects_benign_without_evidence():
     out = guardrail.check({"verdict": "benign", "evidence_event_ids": []}, [], ALERT)
     assert out["ok"] is False and len(out["problems"]) == 1
+
+
+def _final(verdict, seen=()):
+    # 재시도를 다 쓴 상태에서 가드레일 노드를 부른다 (낮추기 경로)
+    from soc.agent import nodes
+    from soc.agent.state import TriageState
+    state: TriageState = {"verdict": verdict, "seen_event_ids": list(seen), "alert": ALERT,
+                          "guardrail_retries": 99, "messages": []}
+    return nodes.check_guardrail(state)["verdict"]
+
+
+def test_downgrade_benign_without_evidence_becomes_suspicious():
+    # 근거 없는 '정상'을 그대로 내보내면 근거 없이 사건이 닫힌다. 정책 3장대로 '의심'으로 두고 분석가 검토
+    v = _final({"verdict": "benign", "confidence": 0.8, "evidence_event_ids": []})
+    assert v["verdict"] == "suspicious" and v["needs_review"] is True
+
+
+def test_downgrade_benign_with_only_fabricated_evidence_becomes_suspicious():
+    v = _final({"verdict": "benign", "confidence": 0.8, "evidence_event_ids": ["evt-99999999"]})
+    assert v["evidence_event_ids"] == [] and v["verdict"] == "suspicious"
+
+
+def test_downgrade_benign_keeps_label_when_real_evidence_remains():
+    v = _final({"verdict": "benign", "confidence": 0.8, "evidence_event_ids": ["evt-00000023", "evt-99999999"]})
+    assert v["evidence_event_ids"] == ["evt-00000023"] and v["verdict"] == "benign" and v["needs_review"] is True
