@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from langchain_core.tools import tool
 
 _CMD = r"rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump 668 C:\Windows\Temp\d.dmp full"
@@ -41,12 +43,14 @@ def get_host_timeline(host: str, around_ts: str, minutes: int = 10) -> dict:
 
 def get_network_connections(host: str, minutes: int = 30, around_ts: str | None = None) -> dict:
     """[가짜] 외부 IP와 프로세스별 통신 요약 (횟수, 포트, 간격). 예시 알림 이야기에는 통신이 없어 사내 SaaS 1건만 돌려줍니다."""
-    del minutes  # 가짜는 시간 범위와 상관없이 같은 결과를 돌려준다
+    # 결과 내용은 시간 범위와 상관없이 같지만, from과 to는 진짜처럼 기준 시각 앞뒤 시각 문자열로 준다
+    center = datetime.fromisoformat((around_ts or "2026-11-16T09:14:02Z").replace("Z", "+00:00"))
+    window = [(center + timedelta(minutes=d)).isoformat().replace("+00:00", "Z") for d in (-minutes, minutes)]
     # 진짜 도구와 키 모양을 맞추려고 연결 1건을 둔다. sample_events.jsonl의 WS-007 outlook.exe 통신 기록과 같은 값
     conn = {"dst_ip": "203.0.113.11", "pid": 39289, "name": "outlook.exe", "ports": [443], "count": 1,
             "bytes_out": 3903, "first_ts": "2026-11-16T09:14:02Z", "last_ts": "2026-11-16T09:14:02Z",
             "interval_sec": None, "events": [{"event_id": "evt-00000018", "ts": "2026-11-16T09:14:02Z"}]}
-    return {"host": host, "from": around_ts, "to": around_ts, "connections": [conn], "truncated": False}
+    return {"host": host, "from": window[0], "to": window[1], "connections": [conn], "truncated": False}
 
 
 def search_playbook(query: str, k: int = 3) -> list[dict]:

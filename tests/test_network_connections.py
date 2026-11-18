@@ -160,3 +160,23 @@ def test_registered_as_tool_and_mock_has_same_shape():
     assert set(fake) == set(real)
     assert set(fake["connections"][0]) == set(real["connections"][0])
     assert all(e["event_id"] for c in fake["connections"] for e in c["events"])
+
+
+@pytest.mark.parametrize("ip", ["10.0.0.1", "172.16.5.5", "192.168.1.1", "127.0.0.1", "169.254.1.1",
+                                "::1", "fe80::1", "fd00::1", "::ffff:10.0.0.1"])
+def test_internal_addresses_ipv4_and_ipv6(ip):
+    # IPv6 루프백, 링크 로컬, 사설(fc00::/7), IPv4가 매핑된 사내 주소도 사내로 본다
+    assert tools._is_internal(ip) is True
+
+
+@pytest.mark.parametrize("ip", [C2, "203.0.113.10", "8.8.8.8", "2001:db8::1", "::ffff:198.51.100.23"])
+def test_external_addresses(ip):
+    assert tools._is_internal(ip) is False
+
+
+def test_mock_default_call_returns_time_strings():
+    # 진짜 도구는 around_ts를 비워도 from, to에 시각 문자열을 준다. 가짜도 같아야 바꿔 끼울 수 있다
+    fake = mocks.get_network_connections("WS-007")
+    assert isinstance(fake["from"], str) and isinstance(fake["to"], str)
+    real = tools.get_network_connections("WS-007")
+    assert type(fake["from"]) is type(real["from"]) and type(fake["to"]) is type(real["to"])

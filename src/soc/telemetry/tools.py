@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from ipaddress import ip_address, ip_network
+from ipaddress import IPv6Address, ip_address, ip_network
 
 from langchain_core.tools import tool
 
@@ -28,7 +28,8 @@ NET_LIMIT = 500             # 네트워크 기록을 최대 몇 건까지 읽어
 NET_MAX_DESTS = 20          # 돌려줄 묶음(외부 IP와 프로세스) 개수 상한 (연결 횟수가 많은 순)
 NET_EVENTS_PER_DEST = 10    # 묶음마다 함께 넘길 기록(event_id) 수
 INTERNAL_NETS = [ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-                                         "127.0.0.0/8", "169.254.0.0/16")]
+                                         "127.0.0.0/8", "169.254.0.0/16",
+                                         "::1/128", "fe80::/10", "fc00::/7")]   # IPv6 루프백, 링크 로컬, 사설
 
 
 def _search(body: dict) -> list[dict]:
@@ -151,6 +152,9 @@ def _is_internal(ip: str) -> bool:
     """사내망, 루프백, 링크 로컬 주소인지. ipaddress의 is_private는 문서용 대역(198.51.100.0/24 등)도
     사설로 보므로 쓰지 않는다. 실습 데이터의 외부 IP가 바로 그 문서용 대역이기 때문이다."""
     addr = ip_address(ip)
+    # ::ffff:10.0.0.1처럼 IPv4를 IPv6 모양으로 적은 주소는 안쪽 IPv4로 판단한다
+    if isinstance(addr, IPv6Address) and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
     return any(addr in net for net in INTERNAL_NETS)
 
 
@@ -158,7 +162,7 @@ def get_network_connections(host: str, minutes: int = 30, around_ts: str | None 
     """그 PC가 외부 IP와 통신한 기록을 IP와 프로세스별로 묶어 봅니다: 연결 횟수, 포트, 보낸 바이트, 연결 사이 간격(초).
     악성코드가 C2 서버에 일정한 간격으로 신호를 보내는 '비컨' 통신처럼, 주기적인 외부 통신이 의심될 때 씁니다.
     간격의 최소, 최대가 평균과 거의 같고 횟수가 많으면 사람이 아닌 프로그램이 규칙적으로 보낸 통신일 가능성이 큽니다.
-    사내 IP(10.x, 172.16~31.x, 192.168.x) 통신은 빼고 봅니다.
+    사내 IP(10.x, 172.16~31.x, 192.168.x와 IPv6 사설, 루프백, 링크 로컬) 통신은 빼고 봅니다.
 
     Args:
         host: PC 이름 (예: WS-007)
