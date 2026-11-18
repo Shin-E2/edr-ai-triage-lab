@@ -13,14 +13,21 @@ def check_evidence_exists(verdict: dict, seen_event_ids: list[str], alert: dict)
     알림 자체의 event_ids(탐지 룰이 붙인 근거)도 확인된 기록으로 칩니다.
     돌려주는 것: 문제 설명 목록 (문제가 없으면 빈 목록)
     """
-    # TODO[G-1]: verdict["evidence_event_ids"] 중 seen_event_ids에도, alert["event_ids"]에도 없는 id를 찾아
-    # "조회하지 않은 근거: evt-..." 같은 문제 설명으로 돌려줍니다.
-    return []
+    # 정책 PDF 3장 "조회하지 않은 이벤트를 근거로 쓰는 것은 금지": 도구 결과와 알림에 없는 id는 지어낸 근거로 본다
+    known = set(seen_event_ids) | set(alert.get("event_ids") or [])
+    unseen = [i for i in verdict.get("evidence_event_ids") or [] if i not in known]
+    # 같은 id를 여러 번 인용해도 한 번만 알린다. 이 문구는 다시 조사할 때 LLM에게 그대로 전달된다
+    return [f"조회하지 않은 근거: {i}" for i in dict.fromkeys(unseen)]
 
 
 def check_malicious_needs_two(verdict: dict) -> list[str]:
     """악성 판정에는 서로 다른 근거가 2개 이상 있어야 합니다. (01번 정책 PDF 3장 판정 기준)"""
-    # TODO[G-2]: verdict가 "malicious"인데 서로 다른 근거 id가 2개 미만이면 문제 설명을 돌려줍니다.
+    if verdict.get("verdict") != "malicious":
+        return []
+    # 같은 id를 두 번 적어도 근거는 하나이므로, 서로 다른 id 개수로 센다
+    distinct = set(verdict.get("evidence_event_ids") or [])
+    if len(distinct) < 2:
+        return [f"악성 판정에는 서로 다른 근거가 2개 이상 필요합니다 (지금 {len(distinct)}개)"]
     return []
 
 
