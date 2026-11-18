@@ -20,8 +20,21 @@ def check_evidence_exists(verdict: dict, seen_event_ids: list[str], alert: dict)
     return [f"조회하지 않은 근거: {i}" for i in dict.fromkeys(unseen)]
 
 
+def check_cites_evidence(verdict: dict) -> list[str]:
+    """판정은 종류와 상관없이 근거 event_id를 하나 이상 인용해야 합니다. (01번 정책 PDF 3장)"""
+    # 정책 3장 "모든 판정과 보고서는 근거 이벤트 ID를 인용해야": 정상, 의심 판정도 근거가 비면 추적할 수 없다
+    if not verdict.get("evidence_event_ids"):
+        return ["근거 event_id가 하나도 없습니다"]
+    return []
+
+
 def check_malicious_needs_two(verdict: dict) -> list[str]:
-    """악성 판정에는 서로 다른 근거가 2개 이상 있어야 합니다. (01번 정책 PDF 3장 판정 기준)"""
+    """악성 판정에는 서로 다른 근거가 2개 이상 있어야 합니다. (01번 정책 PDF 3장 판정 기준)
+
+    정책의 '서로 독립적인 근거'(공격 단계가 다른 근거)인지는 코드로 판단하지 않습니다. 여기서는 서로 다른 id
+    개수만 세고, 독립성은 판정 프롬프트의 기준과 사람 검토에 맡깁니다. 같은 비컨의 반복 연결 2건처럼 단계가
+    같은 근거도 이 검사는 통과합니다.
+    """
     if verdict.get("verdict") != "malicious":
         return []
     # 같은 id를 두 번 적어도 근거는 하나이므로, 서로 다른 id 개수로 센다
@@ -32,5 +45,6 @@ def check_malicious_needs_two(verdict: dict) -> list[str]:
 
 
 def check(verdict: dict, seen_event_ids: list[str], alert: dict) -> dict:
-    problems = check_evidence_exists(verdict, seen_event_ids, alert) + check_malicious_needs_two(verdict)
+    problems = (check_cites_evidence(verdict) + check_evidence_exists(verdict, seen_event_ids, alert)
+                + check_malicious_needs_two(verdict))
     return {"ok": not problems, "problems": problems}

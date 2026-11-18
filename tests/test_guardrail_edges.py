@@ -47,3 +47,16 @@ def test_check_combines_both_rules():
     # 실제 근거 1개뿐인 악성 판정: G-2가 잡는다
     out = guardrail.check({"verdict": "malicious", "evidence_event_ids": ["evt-00000023"]}, [], ALERT)
     assert out["ok"] is False and len(out["problems"]) == 1
+
+
+def test_every_verdict_must_cite_evidence():
+    # 정책 3장 "모든 판정과 보고서는 근거 이벤트 ID를 인용해야" → 의심, 정상 판정도 근거가 비면 안 된다
+    for label in ("benign", "suspicious", "malicious"):
+        assert guardrail.check_cites_evidence({"verdict": label, "evidence_event_ids": []})
+        assert guardrail.check_cites_evidence({"verdict": label})
+    assert guardrail.check_cites_evidence({"verdict": "benign", "evidence_event_ids": ["evt-00000023"]}) == []
+
+
+def test_check_rejects_benign_without_evidence():
+    out = guardrail.check({"verdict": "benign", "evidence_event_ids": []}, [], ALERT)
+    assert out["ok"] is False and len(out["problems"]) == 1
