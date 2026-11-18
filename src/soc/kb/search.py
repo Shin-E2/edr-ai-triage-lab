@@ -15,6 +15,7 @@ from ..osclient import get_client
 from .embed import embed_query
 
 RRF_K = 60
+MAX_K = 5
 
 
 def _hits(res: dict) -> list[dict]:
@@ -71,8 +72,10 @@ def search_playbook(query: str, k: int = 3) -> list[dict]:
 
     Args:
         query: 찾을 내용 (예: "LSASS 덤프 대응 승인권자")
-        k: 돌려받을 조각 수 (기본 3)
+        k: 돌려받을 조각 수 (기본 3, 최대 5)
     """
+    # 계약 상한을 지켜 LLM이 큰 k를 보내도 오류 없이 최대 5개로 자릅니다.
+    k = max(1, min(k, MAX_K))
     return [{key: h[key] for key in ("source", "page", "category", "text", "score")} for h in search(query, k)]
 
 
