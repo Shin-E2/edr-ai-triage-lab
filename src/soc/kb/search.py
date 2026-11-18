@@ -50,7 +50,7 @@ def rrf_fuse(result_lists: list[list[dict]], top_n: int) -> list[dict]:
             totals[doc_id] = totals.get(doc_id, 0.0) + 1 / (RRF_K + rank)
             first_seen.setdefault(doc_id, hit)
     # 합계가 큰 순서로 top_n개만 고르고, score를 RRF 점수로 바꿔 돌려준다
-    best_ids = sorted(totals, key=totals.get, reverse=True)[:top_n]
+    best_ids = sorted(totals, key=lambda doc_id: totals[doc_id], reverse=True)[:top_n]
     return [first_seen[doc_id] | {"score": totals[doc_id]} for doc_id in best_ids]
 
 
