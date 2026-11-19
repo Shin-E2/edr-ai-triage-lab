@@ -10,7 +10,8 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from ipaddress import IPv6Address, ip_address, ip_network
 
 from langchain_core.tools import tool
 
@@ -23,6 +24,12 @@ MAX_ANCESTORS = 5
 MAX_CHILDREN = 5
 ACTIVITY_LIMIT = 50
 TIMELINE_LIMIT = 100
+NET_LIMIT = 500             # 네트워크 기록을 최대 몇 건까지 읽어 묶을지
+NET_MAX_DESTS = 20          # 돌려줄 묶음(외부 IP와 프로세스) 개수 상한 (연결 횟수가 많은 순)
+NET_EVENTS_PER_DEST = 10    # 묶음마다 함께 넘길 기록(event_id) 수
+INTERNAL_NETS = [ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                                         "127.0.0.0/8", "169.254.0.0/16",
+                                         "::1/128", "fe80::/10", "fc00::/7")]   # IPv6 루프백, 링크 로컬, 사설
 
 
 def _search(body: dict) -> list[dict]:
@@ -141,6 +148,65 @@ def get_host_timeline(host: str, around_ts: str, minutes: int = 10) -> dict:
             "truncated": len(events) > TIMELINE_LIMIT}
 
 
+def _is_internal(ip: str) -> bool:
+    """사내망, 루프백, 링크 로컬 주소인지. ipaddress의 is_private는 문서용 대역(198.51.100.0/24 등)도
+    사설로 보므로 쓰지 않는다. 실습 데이터의 외부 IP가 바로 그 문서용 대역이기 때문이다."""
+    addr = ip_address(ip)
+    # ::ffff:10.0.0.1처럼 IPv4를 IPv6 모양으로 적은 주소는 안쪽 IPv4로 판단한다
+    if isinstance(addr, IPv6Address) and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    return any(addr in net for net in INTERNAL_NETS)
 
 
-TELEMETRY_TOOLS = [tool(get_process_tree), tool(get_process_activity), tool(get_host_timeline)]
+def get_network_connections(host: str, minutes: int = 30, around_ts: str | None = None) -> dict:
+    """그 PC가 외부 IP와 통신한 기록을 IP와 프로세스별로 묶어 봅니다: 연결 횟수, 포트, 보낸 바이트, 연결 사이 간격(초).
+    악성코드가 C2 서버에 일정한 간격으로 신호를 보내는 '비컨' 통신처럼, 주기적인 외부 통신이 의심될 때 씁니다.
+    간격의 최소, 최대가 평균과 거의 같고 횟수가 많으면 사람이 아닌 프로그램이 규칙적으로 보낸 통신일 가능성이 큽니다.
+    사내 IP(10.x, 172.16~31.x, 192.168.x와 IPv6 사설, 루프백, 링크 로컬) 통신은 빼고 봅니다.
+
+    Args:
+        host: PC 이름 (예: WS-007)
+        minutes: 기준 시각 앞뒤로 몇 분까지 볼지 (기본 30)
+        around_ts: 기준 시각 (ISO 형식, 예: 2026-11-16T09:12:02Z). 보통 알림 시각. 비우면 지금 시각
+    """
+    if minutes < 0:
+        raise ValueError("minutes는 0 이상이어야 합니다")
+    center = _parse_ts(around_ts) if around_ts else datetime.now(timezone.utc)
+    if center.utcoffset() is None:
+        raise ValueError("around_ts에는 시간대가 필요합니다 (예: Z 또는 +09:00)")
+    start, end = _iso(center - timedelta(minutes=minutes)), _iso(center + timedelta(minutes=minutes))
+    rows = _search({"size": NET_LIMIT + 1, "sort": [{"ts": "asc"}], "query": {"bool": {"filter": [
+        {"term": {"host": host}}, {"term": {"type": "network"}}, {"range": {"ts": {"gte": start, "lte": end}}}]}}})
+    truncated = len(rows) > NET_LIMIT
+
+    # 외부 IP와 프로세스 쌍으로 묶는다. IP로만 묶으면 같은 서버에 붙은 다른 프로그램의 연결이 끼어
+    # 규칙적인 비컨도 간격이 들쭉날쭉해 보인다. 시간순으로 받았으므로 묶인 목록도 시간순이다
+    groups: dict[tuple, list[dict]] = {}
+    for e in rows[:NET_LIMIT]:
+        ip, p = e["network"]["dst_ip"], e.get("process", {})
+        if not _is_internal(ip):
+            groups.setdefault((ip, p.get("pid"), p.get("name")), []).append(e)
+
+    connections = []
+    for (ip, pid, name), evs in groups.items():
+        times = [_parse_ts(e["ts"]) for e in evs]
+        gaps = [(b - a).total_seconds() for a, b in zip(times, times[1:])]
+        connections.append({
+            "dst_ip": ip, "pid": pid, "name": name,
+            "ports": sorted({e["network"]["dst_port"] for e in evs}),
+            "count": len(evs),
+            "bytes_out": sum(e["network"].get("bytes_out", 0) for e in evs),
+            "first_ts": evs[0]["ts"], "last_ts": evs[-1]["ts"],
+            # 연결이 1번뿐이면 간격이 없다. 평균만 주면 들쭉날쭉한 통신도 규칙적으로 보이므로 최소, 최대를 함께 준다
+            "interval_sec": {"avg": round(sum(gaps) / len(gaps), 1), "min": round(min(gaps), 1),
+                             "max": round(max(gaps), 1)} if gaps else None,
+            # 가드레일이 근거로 인정하려면 기록마다 event_id가 있어야 한다. 비용을 줄이려고 앞의 몇 개만 넘긴다
+            "events": [{"event_id": e["event_id"], "ts": e["ts"]} for e in evs[:NET_EVENTS_PER_DEST]],
+        })
+    connections.sort(key=lambda c: (-c["count"], c["dst_ip"], c["pid"] or 0))
+    return {"host": host, "from": start, "to": end, "connections": connections[:NET_MAX_DESTS],
+            "truncated": truncated or len(connections) > NET_MAX_DESTS}
+
+
+TELEMETRY_TOOLS = [tool(get_process_tree), tool(get_process_activity), tool(get_host_timeline),
+                   tool(get_network_connections)]

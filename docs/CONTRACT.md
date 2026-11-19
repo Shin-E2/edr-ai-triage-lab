@@ -13,6 +13,7 @@
 | `get_process_tree(host, pid)`                 | 🔍          | `host`: PC 이름, `pid`: 프로세스 번호                                                | `host`, `pid`, `process`(대상 또는 `null`), `ancestors`(부모 목록), `children`(직접 자식 목록). 각 기록에 `event_id` | 부모 최대 5단계; 직접 자식 최대 5건 | 기록이 없으면 찾은 부분까지 반환하고 `note`로 설명; 검색 오류는 예외 전달 |
 | `get_process_activity(host, pid)`             | 🔍          | `host`: PC 이름, `pid`: 프로세스 번호                                                | `host`, `pid`, `events`(시간순 활동 목록). 각 기록에 `event_id`, 시각·종류·요약                                 | 최대 50건                         | 일치하는 활동이 없으면 `events: []`; 검색 오류는 예외 전달 |
 | `get_host_timeline(host, around_ts, minutes)` | 🔍          | `host`: PC 이름, `around_ts`: 기준 시각(ISO 8601), `minutes`: 전후 시간(분, 기본 10) | `host`, `from`, `to`, `events`(시간순 목록), `truncated`(결과 잘림 여부). 각 기록에 `event_id`                  | 최대 100건                        | 일치하는 기록이 없으면 `events: []`; 검색 오류나 잘못된 시각은 예외 전달 |
+| `get_network_connections(host, minutes, around_ts)` | 📘 (교차, 리뷰 🔍) | `host`: PC 이름, `minutes`: 전후 시간(분, 기본 30), `around_ts`: 기준 시각(ISO 8601, 비우면 지금) | `host`, `from`, `to`, `connections`(외부 IP와 프로세스별 묶음: `dst_ip`, `pid`, `name`, `ports`, `count`, `bytes_out`, `first_ts`, `last_ts`, `interval_sec`(평균, 최소, 최대 또는 `null`), `events`), `truncated`(읽은 기록이 상한을 넘거나 묶음이 20개를 넘으면 `true`). `events`의 각 기록에 `event_id` | 네트워크 기록 최대 500건 읽음; 묶음 최대 20개; 묶음마다 기록 최대 10건(`count`는 전체 횟수) | 통신이 없으면 `connections: []`; 검색 오류나 잘못된 시각, 음수 `minutes`는 예외 전달. 사내 IP(10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, IPv6 `::1`, `fe80::/10`, `fc00::/7`, IPv4가 매핑된 IPv6 포함)는 뺌 |
 | `search_playbook(query, k)`                   | 📘          | `query`: 검색 질문, `k`: 요청할 결과 수(기본 3)                                      | 결과 목록. 각 결과에 `text`, `source`(파일 이름), `page`, `category`, `score`                                   | `k`는 기본 3개, 최대 5개까지 허용 | 결과가 없으면 `[]`; OpenSearch나 임베딩 오류는 예외 전달. 권고 노드에서 검색 실패로 처리하는 것은 구현 필요 |
 
 조회 결과가 없는 경우와 OpenSearch 연결 오류 등 실제 실패는 구분합니다. 조사 도구가 예외를 던지면 에이전트의 `run_tools` 노드가 이를 잡아 `{"error": "오류 종류: 오류 내용"}` 형태로 전달합니다. 도구를 직접 호출하는 쪽은 예외를 직접 처리해야 합니다. 문서 검색을 호출하는 권고 노드는 아직 미구현이므로 오류 처리 방식을 구현하고 확인해야 합니다. 텔레메트리 기록의 명령줄은 앞부분만 요약합니다.
@@ -26,3 +27,4 @@
 
 | 바꾼 것 | 이유 | 둘 다 동의 |
 | ------- | ---- | ---------- |
+| `get_network_connections` 추가 (2일차 3 교차 작업) | 주기적인 외부 통신(C2 비컨)을 횟수와 간격으로 확인하는 도구가 없었음. 알림 시각 기준으로 보도록 `around_ts`를 받고, IP로만 묶으면 다른 프로세스 연결이 섞여 간격이 흐려지므로 IP와 프로세스로 묶음 | 신혜지 동의, 도윤혁 리뷰 대기 |

@@ -1,4 +1,4 @@
-"""가짜 도구 4개: 도구 계약의 '모양'을 보여 주는 견본.
+"""가짜 도구 5개: 도구 계약의 '모양'을 보여 주는 견본.
 
 1일차에 계약(docs/CONTRACT.md)을 정할 때 이 파일을 함께 읽습니다.
 그 뒤에는 각자 상대의 진짜 도구가 아직 없을 때 이 가짜를 대신 씁니다. 그래서 둘이 동시에 개발할 수 있습니다.
@@ -10,6 +10,8 @@
 돌려주는 모양(키 이름, event_id, source)이 진짜와 같아야 나중에 바꿔 끼울 수 있습니다.
 """
 from __future__ import annotations
+
+from datetime import datetime, timedelta
 
 from langchain_core.tools import tool
 
@@ -39,6 +41,18 @@ def get_host_timeline(host: str, around_ts: str, minutes: int = 10) -> dict:
     return {"host": host, "from": around_ts, "to": around_ts, "events": [_CMDEXE, _RUNDLL, _DMP], "truncated": False}
 
 
+def get_network_connections(host: str, minutes: int = 30, around_ts: str | None = None) -> dict:
+    """[가짜] 외부 IP와 프로세스별 통신 요약 (횟수, 포트, 간격). 예시 알림 이야기에는 통신이 없어 사내 SaaS 1건만 돌려줍니다."""
+    # 결과 내용은 시간 범위와 상관없이 같지만, from과 to는 진짜처럼 기준 시각 앞뒤 시각 문자열로 준다
+    center = datetime.fromisoformat((around_ts or "2026-11-16T09:14:02Z").replace("Z", "+00:00"))
+    window = [(center + timedelta(minutes=d)).isoformat().replace("+00:00", "Z") for d in (-minutes, minutes)]
+    # 진짜 도구와 키 모양을 맞추려고 연결 1건을 둔다. sample_events.jsonl의 WS-007 outlook.exe 통신 기록과 같은 값
+    conn = {"dst_ip": "203.0.113.11", "pid": 39289, "name": "outlook.exe", "ports": [443], "count": 1,
+            "bytes_out": 3903, "first_ts": "2026-11-16T09:14:02Z", "last_ts": "2026-11-16T09:14:02Z",
+            "interval_sec": None, "events": [{"event_id": "evt-00000018", "ts": "2026-11-16T09:14:02Z"}]}
+    return {"host": host, "from": window[0], "to": window[1], "connections": [conn], "truncated": False}
+
+
 def search_playbook(query: str, k: int = 3) -> list[dict]:
     """[가짜] 질문과 관련된 플레이북·정책 조각. 결과마다 source(파일 이름)가 있습니다."""
     rows = [
@@ -52,5 +66,6 @@ def search_playbook(query: str, k: int = 3) -> list[dict]:
     return rows[:k]
 
 
-TELEMETRY_TOOLS = [tool(get_process_tree), tool(get_process_activity), tool(get_host_timeline)]
+TELEMETRY_TOOLS = [tool(get_process_tree), tool(get_process_activity), tool(get_host_timeline),
+                   tool(get_network_connections)]
 KB_TOOLS = [tool(search_playbook)]
