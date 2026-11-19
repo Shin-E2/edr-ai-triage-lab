@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     kb_pdf_dir: str = str(ROOT / "data" / "kb" / "pdf")
     parse_strategy: str = "fast"            # fast / hi_res / ocr_only
     chunk_max_characters: int = 800
-    chunk_new_after_n_chars: int = 600
+    chunk_new_after_n_chars: int = 500    # 2일차 청킹 실험으로 정함(DECISIONS "청킹 값")
 
     # 연동 -------------------------------------------------------------------
     dify_api_key: str = "change-me"
