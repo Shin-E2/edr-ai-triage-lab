@@ -4,7 +4,9 @@
 """
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
+import pytest
 
+from soc.agent.nodes import approval
 from soc.agent.graph import build_graph, run_config
 
 ALERT = {"alert_id": "al-test-approval", "ts": "2026-11-16T09:12:02Z", "host": "WS-007", "rule_id": "R003",
@@ -42,3 +44,16 @@ def test_new_saver_has_no_memory():
     g1.invoke({"alert": ALERT | {"alert_id": "al-test-restart"}}, cfg)
     g2 = build_graph(InMemorySaver())          # '재시작'한 프로세스
     assert not g2.get_state(cfg).next
+
+
+def test_safe_recommendation_does_not_request_approval():
+    result = approval({"recommendation": {"actions": [{"action": "monitor"}]}})
+    assert result["approval"] == {"required": False, "decision": "not_required"}
+
+
+def test_non_boolean_approval_is_rejected():
+    g = build_graph(InMemorySaver())
+    cfg = run_config("al-test-invalid-decision")
+    g.invoke({"alert": ALERT | {"alert_id": "al-test-invalid-decision"}}, cfg)
+    with pytest.raises(ValueError, match="불리언 approved"):
+        g.invoke(Command(resume={"approved": "false", "approver": "테스트"}), cfg)
