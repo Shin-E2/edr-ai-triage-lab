@@ -111,7 +111,9 @@ def check_guardrail(state: TriageState) -> dict:
     v = dict(state["verdict"])
     known = set(state.get("seen_event_ids", [])) | set(state["alert"].get("event_ids", []))
     v["evidence_event_ids"] = [i for i in v.get("evidence_event_ids", []) if i in known]
-    if v["verdict"] == "malicious":
+    # 악성은 근거가 검증되지 않았으니 '의심'으로. 남은 근거가 하나도 없으면 '정상'도 근거 없이 사건을 닫는 셈이라
+    # '의심'으로 둔다 (01번 정책 PDF 3장: 근거가 부족하면 의심으로 분류하고 분석가 검토)
+    if v["verdict"] == "malicious" or not v["evidence_event_ids"]:
         v["verdict"] = "suspicious"
     v["needs_review"] = True
     out["verdict"] = v

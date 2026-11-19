@@ -1,6 +1,6 @@
 # 아키텍처
 
-> 1일차 설계와 구현된 그래프의 흐름을 정리했다. 가드레일 검사와 사람 승인은 아직 미구현이다.
+> 1일차 설계와 구현된 그래프의 흐름을 정리했다. 가드레일 근거 검사는 2일차에 구현했고(G-1, G-2), 사람 승인은 아직 미구현이다.
 
 ## 1. 에이전트 설계도
 
@@ -13,7 +13,7 @@ flowchart TD
     More -- 예 --> Tools[도구 실행]
     Tools --> Investigate
     More -- 아니요 --> Judge[판정]
-    Judge --> Guardrail[가드레일: 1일차에는 검사 미구현]
+    Judge --> Guardrail[가드레일: 근거 검사]
     Guardrail -- 재조사 --> Investigate
     Guardrail -- 권고 진행 --> Recommend[권고]
     Recommend --> Approval[승인: 1일차에는 승인 기능 미구현]
@@ -48,7 +48,7 @@ flowchart TD
 | 조사 | 알림과 대화를 보고 조사 도구 호출 여부를 결정한다. | `alert`, `messages` | `messages`, `trace`, `usage` | 가짜 LLM, 조사 도구 호출 요청 | 📘 문서 담당 |
 | 도구 실행 | 요청된 조사 도구를 실행하고 반환된 이벤트 ID를 모은다. | `messages`, `tool_rounds` | `messages`, `seen_event_ids`, `tool_rounds`, `trace` | 가짜 조사 도구 3개 | 👥 함께 확인 |
 | 판정 | 조사 결과를 바탕으로 판정과 근거를 작성한다. | `messages` | `verdict`, `trace`, `usage` | 가짜 LLM | 👥 함께 확인 |
-| 가드레일 | 판정 검사의 위치. 1일차에는 실제 검사 함수가 미구현이다. | `verdict`, `seen_event_ids`, `alert` | `guardrail`, `guardrail_log`, `trace` 등 | 검사 함수 (미구현) | 👥 흐름 확인 |
+| 가드레일 | 판정 근거를 검사한다. 조회하지 않은 근거, 근거가 없는 판정, 근거가 2개 미만인 악성 판정을 문제로 돌려준다. | `verdict`, `seen_event_ids`, `alert` | `guardrail`, `guardrail_log`, `trace` 등 | `guardrail.check()` | 👥 흐름 확인 |
 | 권고 | 판정에 관련된 문서 조각을 찾고 대응 권고를 만든다. | `alert`, `verdict` | `playbook`, `recommendation`, `trace`, `usage` | 가짜 `search_playbook`, 가짜 LLM | 🔍 기록 담당 |
 | 승인 | 승인 기능의 위치. 1일차에는 실제 승인을 기다리지 않는다. | `recommendation` | `approval`, `trace` | — | 👥 흐름 확인 |
 | 리포트 | 알림, 판정, 근거, 권고와 승인 상태를 모은다. | `alert`, `verdict`, `guardrail`, `playbook`, `recommendation`, `approval`, `usage`, `tool_rounds`, `trace` | `report`, `trace` | — | 👥 함께 확인 |
@@ -56,7 +56,7 @@ flowchart TD
 ## 2. 갈림길
 
 - **도구를 더 호출할까?** 조사 결과에 도구 호출 요청이 있고 `tool_rounds`가 `max_tool_rounds`보다 작으면 도구를 실행한 뒤 다시 조사한다. 요청이 없거나 상한에 도달하면 판정으로 간다. 현재 설정의 기본 상한은 6회다.
-- **가드레일이 실패하면?** 제공된 설정은 기본적으로 한 번 재조사하는 방향이다. 다만 실제 근거 검사 함수는 1일차에 구현하지 않으므로, 이 실패 경로는 설계상 위치로만 남긴다.
+- **가드레일이 실패하면?** 제공된 설정대로 문제를 알려 주고 한 번 재조사한다. 그래도 실패하면 조회하지 않은 근거를 빼고, 악성 판정이나 근거가 하나도 남지 않은 판정은 '의심'으로 낮춘 뒤 사람 검토 표시를 붙인다.
 - **위험한 조치가 있으면?** 승인 노드의 위치는 그래프에 포함한다. 현재 노드는 승인 필요 여부만 표시하며, 실제로 멈춰 사람의 승인을 받지는 않는다.
 
 ## 3. 배포 구성도 (2일차부터)

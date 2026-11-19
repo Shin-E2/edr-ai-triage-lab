@@ -27,7 +27,7 @@ def build_graph(checkpointer=None):
     g.add_edge("tools", "investigate")
 
     # 판정 후 가드레일 결과에 따라 재조사하거나 권고로 진행한다.
-    # 실제 근거 검사 함수는 아직 미구현이다.
+    # 근거 검사는 guardrail.check()가 하고, 한 번 재조사해도 실패하면 check_guardrail()이 '의심'으로 낮춘다.
     g.add_edge("judge", "guardrail")
     g.add_conditional_edges("guardrail", nodes.after_guardrail,
                             {"investigate": "investigate", "recommend": "recommend"})
