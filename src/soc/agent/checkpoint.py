@@ -5,15 +5,12 @@
 """
 from __future__ import annotations
 
-import logging
+import atexit
 from functools import lru_cache
 
 from langgraph.checkpoint.memory import InMemorySaver
 
 from ..config import settings
-
-log = logging.getLogger("checkpoint")
-
 
 def _kind() -> str:
     if settings.checkpointer != "auto":
@@ -25,12 +22,27 @@ def _kind() -> str:
 def get_checkpointer():
     if _kind() == "memory":
         return InMemorySaver()
-    # TODO[H-2]: Postgres에 상태를 저장하는 PostgresSaver를 만들어 돌려줍니다.
-    # psycopg 연결 풀을 settings.postgres_dsn으로 만들고(연결 옵션: autocommit=True, prepare_threshold=0, row_factory=dict_row),
-    # PostgresSaver(풀)을 만든 뒤 setup()을 한 번 실행합니다 (체크포인트 테이블 생성, 여러 번 실행해도 안전).
-    # API는 여러 요청을 동시에 처리하므로 연결 하나보다 풀이 안전합니다.
-    log.warning("TODO[H-2] 전: Postgres 대신 메모리에 저장합니다")
-    return InMemorySaver()
+    if _kind() != "postgres":
+        raise ValueError(f"지원하지 않는 체크포인터: {_kind()}")
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
+
+    pool = ConnectionPool(
+        conninfo=settings.postgres_dsn,
+        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+        min_size=1,
+        max_size=10,
+        open=True,
+    )
+    try:
+        saver = PostgresSaver(pool)
+        saver.setup()
+    except Exception:
+        pool.close()
+        raise
+    atexit.register(pool.close)
+    return saver
 
 
 def ping() -> bool:
